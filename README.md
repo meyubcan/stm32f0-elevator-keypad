@@ -1,84 +1,88 @@
-# STM32F091 ile asansör kontrol benzetimi (4x4 tuş takımı, durum makinesi)
+# Elevator controller simulation with a keypad and a state machine
 
-> [TECH-OHM](https://tech-ohm.com) açık kaynak projesi
+STM32F091 · 4x4 keypad · SCAN scheduling · timer-driven FSM
 
-10 katlı bir asansörün çağrı mantığını durum makinesiyle modelleyen uygulama. Katlar 4x4 tuş takımından çağrılıyor, asansörün hareketi kart üzerindeki LED'in yanıp sönme hızından izleniyor. Motor ya da kapı yok. Amaç çağrı sıralama algoritmasını ve durum geçişlerini denemek.
+![MCU](https://img.shields.io/badge/MCU-STM32F091RC-03234B?logo=stmicroelectronics&logoColor=white) ![IDE](https://img.shields.io/badge/IDE-STM32CubeIDE-2ea44f) ![License](https://img.shields.io/badge/license-MIT-blue) [![TECH-OHM](https://img.shields.io/badge/by-TECH--OHM-FFD400)](https://tech-ohm.com)
 
-## Blok diyagram
+**English** | [Türkçe](README.tr.md) · An open-source project by [TECH-OHM](https://tech-ohm.com)
+
+An application that models the call logic of a 10-floor elevator as a state machine. Floors are called from a 4x4 keypad and the car's movement is shown by how fast the on-board LED blinks. There is no motor or door. The goal is to try out the call scheduling algorithm and the state transitions.
+
+## Block diagram
 
 ```mermaid
 flowchart LR
-    KP[4x4 tuş takımı] -- "satır taraması" --> SCAN[Keypad_GetKey_Event]
-    SCAN --> REQ[Çağrı dizisi, 10 kat]
-    TIM[TIM2, 1 ms kesme] --> FSM[Durum makinesi]
+    KP[4x4 keypad] -- "row scanning" --> SCAN[Keypad_GetKey_Event]
+    SCAN --> REQ[Call array, 10 floors]
+    TIM[TIM2, 1 ms interrupt] --> FSM[State machine]
     REQ --> FSM
     FSM --> LED[LED, PA5]
 ```
 
-## Durumlar
+## States
 
 ```mermaid
 stateDiagram-v2
-    state "Duruyor" as IDLE
-    state "Yukarı" as UP
-    state "Aşağı" as DOWN
-    state "Bekliyor" as DWELL
+    state "Idle" as IDLE
+    state "Moving up" as UP
+    state "Moving down" as DOWN
+    state "Waiting at floor" as DWELL
     [*] --> IDLE
-    IDLE --> UP: üst katta çağrı var
-    IDLE --> DOWN: alt katta çağrı var
-    UP --> DWELL: çağrılan kata gelindi
-    DOWN --> DWELL: çağrılan kata gelindi
-    DWELL --> UP: 3 s doldu, yukarıda çağrı var
-    DWELL --> DOWN: 3 s doldu, aşağıda çağrı var
-    DWELL --> IDLE: 3 s doldu, çağrı kalmadı
+    IDLE --> UP: call above
+    IDLE --> DOWN: call below
+    UP --> DWELL: reached a called floor
+    DOWN --> DWELL: reached a called floor
+    DWELL --> UP: 3 s passed, call above
+    DWELL --> DOWN: 3 s passed, call below
+    DWELL --> IDLE: 3 s passed, no calls left
 ```
 
-| Durum | LED | Süre |
+| State | LED | Time |
 |---|---|---|
-| Duruyor | sürekli yanık | |
-| Yukarı | 0.5 saniyede bir durum değiştirir | kat başına 5 saniye |
-| Aşağı | 0.2 saniyede bir durum değiştirir | kat başına 2 saniye |
-| Bekliyor | sürekli yanık | 3 saniye |
+| Idle | on | |
+| Moving up | toggles every 0.5 s | 5 seconds per floor |
+| Moving down | toggles every 0.2 s | 2 seconds per floor |
+| Waiting at floor | on | 3 seconds |
 
-LED'in 10 kez durum değiştirmesi bir kat ilerlemek anlamına geliyor.
+Ten LED toggles mean the car has moved one floor.
 
-## Çağrı sıralama
+## Call scheduling
 
-Asansörlerde kullanılan tarama (SCAN) mantığı var. Kabin gittiği yönde çağrı kaldığı sürece o yönde devam ediyor ve yol üzerindeki çağrılarda duruyor. O yönde çağrı bitince yön değiştiriyor.
+It uses the SCAN logic real elevators use. The car keeps going in its current direction as long as there are calls that way and stops at called floors along the path. When no calls remain in that direction it reverses.
 
-Örnek: kabin 2. kattayken sırayla 7, 4 ve 1 çağrılırsa önce 4'te, sonra 7'de duruyor, ardından dönüp 1'e iniyor. Kabin hareket halindeyken gelen çağrılar da hesaba katılıyor.
+Example: with the car at floor 2 and calls for 7, 4 and 1 in that order, it stops at 4, then 7, then turns around and goes down to 1. Calls made while the car is moving are taken into account too.
 
-## Tuş takımı
+## Keypad
 
-| | Sütun 1 (PA11) | Sütun 2 (PB12) | Sütun 3 (PB11) | Sütun 4 (PB2) |
+| | Column 1 (PA11) | Column 2 (PB12) | Column 3 (PB11) | Column 4 (PB2) |
 |---|---|---|---|---|
-| Satır 1 (PB1) | 1 | 2 | 3 | A |
-| Satır 2 (PB15) | 4 | 5 | 6 | B |
-| Satır 3 (PB14) | 7 | 8 | 9 | C |
-| Satır 4 (PB13) | * | 0 | # | D |
+| Row 1 (PB1) | 1 | 2 | 3 | A |
+| Row 2 (PB15) | 4 | 5 | 6 | B |
+| Row 3 (PB14) | 7 | 8 | 9 | C |
+| Row 4 (PB13) | * | 0 | # | D |
 
-Satırlar çıkış, sütunlar dahili pull-up'lı giriş. Tarama sırasında satırlar sırayla 0'a çekiliyor ve sütunlardan 0 okunan varsa o tuş basılı demek oluyor. 20 ms sonra tekrar okunarak kontak sıçraması eleniyor. Tuş basılı tutulduğunda tekrar tekrar çağrı üretmemesi için sadece basılma anı sayılıyor.
+Rows are outputs and columns are inputs with internal pull-ups. During a scan the rows are pulled low one at a time, and a column that reads low means that key is pressed. A second read 20 ms later filters contact bounce. Only the moment of pressing counts, so holding a key does not create repeated calls.
 
-0 ile 9 arası tuşlar kat çağırıyor. Harf tuşları, yıldız ve kare kullanılmıyor.
+Keys 0 to 9 call a floor. The letter keys, star and hash are not used.
 
-## Zamanlama
+## Timing
 
-TIM2 milisaniyede bir kesme üretiyor ve durum makinesi bu kesmenin içinde çalışıyor. Bekleme ve LED süreleri milisaniye sayacından hesaplandığı için ana döngüdeki tuş taraması zamanlamayı bozmuyor.
+TIM2 raises an interrupt every millisecond and the state machine runs inside it. Dwell and LED times are derived from the millisecond counter, so the keypad scan in the main loop does not disturb the timing.
 
-## Derleme
+## Build
 
-STM32CubeIDE'de `File > Import > Existing Projects into Workspace` ile klasörü seç. İşlemci STM32F091RC, NUCLEO-F091RC kartıyla uyumlu. LED kartın üzerindeki yeşil LED.
+In STM32CubeIDE use `File > Import > Existing Projects into Workspace` and select this folder. The MCU is an STM32F091RC, compatible with the NUCLEO-F091RC board. The LED is the green one on the board.
 
-## Lisans
+## License
 
-MIT. `Drivers` klasöründeki STM32 HAL ve CMSIS dosyaları kendi lisanslarıyla gelir.
+MIT. The STM32 HAL and CMSIS files under `Drivers` keep their own licenses.
 
-## Yazar
+## Author
 
-Gömülü Sistem Mühendisi M. Eyüb Can, [TECH-OHM](https://tech-ohm.com) kurucusu
+M. Eyüb Can, embedded systems engineer and founder of [TECH-OHM](https://tech-ohm.com)
 
-## TECH-OHM
+## About TECH-OHM
 
-[TECH-OHM](https://tech-ohm.com) elektronik kart ve gömülü yazılım tasarlayan bir mühendislik firması. Fikirden seri üretime kadar tasarım işi alıyor, TECH-OHM Akademi'de 12 aylık gömülü sistem eğitimi ve şirketlere özel danışmanlık veriyor.
+[TECH-OHM](https://tech-ohm.com) designs electronic boards and embedded software, from the first schematic to series production. We also run a 12-month embedded systems training program and consult for engineering teams.
 
-Web: [tech-ohm.com](https://tech-ohm.com) · E-posta: info@tech-ohm.com
+Web: [tech-ohm.com](https://tech-ohm.com) · Email: info@tech-ohm.com
