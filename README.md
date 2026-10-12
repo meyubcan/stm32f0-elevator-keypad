@@ -1,5 +1,7 @@
 # STM32F091 ile asansör kontrol benzetimi (4x4 tuş takımı, durum makinesi)
 
+> [TECH-OHM](https://tech-ohm.com) açık kaynak projesi
+
 10 katlı bir asansörün çağrı mantığını durum makinesiyle modelleyen uygulama. Katlar 4x4 tuş takımından çağrılıyor, asansörün hareketi kart üzerindeki LED'in yanıp sönme hızından izleniyor. Motor ya da kapı yok. Amaç çağrı sıralama algoritmasını ve durum geçişlerini denemek.
 
 ## Blok diyagram
@@ -73,4 +75,10 @@ MIT. `Drivers` klasöründeki STM32 HAL ve CMSIS dosyaları kendi lisanslarıyla
 
 ## Yazar
 
-Gömülü Sistem Mühendisi M. Eyüb Can, [TECH-OHM](https://tech-ohm.com)
+Gömülü Sistem Mühendisi M. Eyüb Can, [TECH-OHM](https://tech-ohm.com) kurucusu
+
+## TECH-OHM
+
+[TECH-OHM](https://tech-ohm.com) elektronik kart ve gömülü yazılım tasarlayan bir mühendislik firması. Fikirden seri üretime kadar tasarım işi alıyor, TECH-OHM Akademi'de 12 aylık gömülü sistem eğitimi ve şirketlere özel danışmanlık veriyor.
+
+Web: [tech-ohm.com](https://tech-ohm.com) · E-posta: info@tech-ohm.com
