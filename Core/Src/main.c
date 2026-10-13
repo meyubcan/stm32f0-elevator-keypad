@@ -23,17 +23,17 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 typedef enum {
-    E_IDLE = 0,     // duruyor, LED sürekli yanar
-    E_UP,           // yukarı gidiyor, 0.5s toggle
-    E_DOWN,         // aşağı gidiyor, 0.2s toggle
-    E_DWELL         // kata geldi, 3s bekle, LED sabit ON
+    E_IDLE = 0,     // stopped, LED stays on
+    E_UP,           // going up, LED toggles every 0.5 s
+    E_DOWN,         // going down, LED toggles every 0.2 s
+    E_DWELL         // arrived at a floor, wait 3 s, LED stays on
 } ElevatorState;
 
-volatile int currentFloor = 0;     // kat bilgisi
-volatile int targetFloor  = 0;     // hedef kat bilgisi
+volatile int currentFloor = 0;     // floor the car is on
+volatile int targetFloor  = 0;     // floor it is heading to
 volatile ElevatorState st = E_IDLE;
 
-static volatile uint32_t ms = 0;   // 1ms sayaç
+static volatile uint32_t ms = 0;   // 1 ms counter
 
 
 static volatile uint8_t req[10] = {0};
@@ -96,12 +96,12 @@ static void MX_TIM2_Init(void);
 /* USER CODE BEGIN 0 */
 static int find_next_target(void)
 {
-    if (direction >= 0) // yukarı basılmışsa öncelikli olan odur
+    if (direction >= 0) // going up: calls above come first
     {
         for (int f = currentFloor; f <= 9; f++)
             if (req[f]) return f;
 
-        // yukarıda yoksa aşağı dön
+        // nothing above, turn around
         direction = -1;
         for (int f = currentFloor; f >= 0; f--)
             if (req[f]) return f;
@@ -111,7 +111,7 @@ static int find_next_target(void)
         for (int f = currentFloor; f >= 0; f--)
             if (req[f]) return f;
 
-        // aşağıda yoksa yukarı dön
+        // nothing below, turn around
         direction = +1;
         for (int f = currentFloor; f <= 9; f++)
             if (req[f]) return f;
@@ -170,7 +170,7 @@ char Keypad_GetKey_Event(void)
     }
 
 done_scan:
-    // ---- Event mantığı ----
+    // ---- Report a key only once per press ----
     if (detected != 0)
     {
         if (keyIsDown == 0)
@@ -180,12 +180,12 @@ done_scan:
         }
         else
         {
-            return 0;           // basılı tutarken tekrar döndürme
+            return 0;           // key is held down, do not report it again
         }
     }
     else
     {
-        keyIsDown = 0;          // tuş bırakıldı
+        keyIsDown = 0;          // key released
         return 0;
     }
 }
@@ -198,7 +198,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
     ms++;
 
-    // ---- DURUYOR / DWELL: LED sabit ON ----
+    // ---- IDLE / DWELL: LED stays on ----
     if (st == E_IDLE)
     {
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
@@ -209,7 +209,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             targetFloor = next;
             st = (targetFloor > currentFloor) ? E_UP : E_DOWN;
 
-            // hareket sayaçlarını sıfırla
+            // reset the movement counters
             toggleCount = 0;
             lastToggleMs = ms;
         }
@@ -222,7 +222,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
         if (ms - dwellStartMs >= 3000)
         {
-            // 3 saniye bitti → sıradaki hedefe devam
+            // 3 seconds are up, go to the next target
             int next = find_next_target();
             if (next >= 0 && next != currentFloor)
             {
@@ -240,7 +240,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         return;
     }
 
-    // ---- HAREKETTE: LED toggle + 10 toggle = 1 kat ----
+    // ---- MOVING: LED toggles, 10 toggles = 1 floor ----
     uint32_t interval = (st == E_UP) ? 500 : 200;  // ms
 
     if (ms - lastToggleMs >= interval)
@@ -249,7 +249,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
         toggleCount++;
 
-        // 10 toggle => 5 tam periyot => 1 kat
+        // 10 toggles = 5 full periods = 1 floor
         if (toggleCount >= 10)
         {
             toggleCount = 0;
@@ -257,29 +257,29 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
             if (st == E_UP && currentFloor < 9) currentFloor++;
             else if (st == E_DOWN && currentFloor > 0) currentFloor--;
 
-            // Bu katta istek var mı? (yolda gelenleri burada yakalıyoruz)
+            // Is there a call for this floor? Calls made on the way are caught here.
             if (req[currentFloor])
             {
-                req[currentFloor] = 0;     // talep karşılandı
-                dwellStartMs = ms;         // 3s bekle
+                req[currentFloor] = 0;     // call served
+                dwellStartMs = ms;         // wait 3 s
                 st = E_DWELL;
                 return;
             }
 
-            // Ana hedefe geldik mi?
+            // Reached the main target?
             if (currentFloor == targetFloor)
             {
-                // Hedef kata gelindi, 3 saniye bekle
+                // At the target floor, wait 3 seconds
                 dwellStartMs = ms;
                 st = E_DWELL;
                 return;
             }
 
-            // Yolda yeni çağrı geldiyse hedefi güncelle
+            // Update the target if a new call came in on the way
             int next = find_next_target();
             if (next >= 0) targetFloor = next;
 
-            // Yön güncelle
+            // Update the direction
             if (targetFloor > currentFloor) { st = E_UP; direction = +1; }
             else if (targetFloor < currentFloor) { st = E_DOWN; direction = -1; }
             else { st = E_DWELL; dwellStartMs = ms; }
@@ -320,7 +320,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim2);
   currentFloor = 0;
-      direction = +1;   // ilk seferde yukarı öncelikli tarama
+      direction = +1;   // the first scan looks upward
       st = E_IDLE;
   /* USER CODE END 2 */
 
